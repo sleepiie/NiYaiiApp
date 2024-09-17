@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import { Alert, View, Image, TouchableOpacity, StyleSheet, Text, SafeAreaView, ScrollView } from 'react-native';
+import { Alert, View, Image, TouchableOpacity, StyleSheet, Text, SafeAreaView, ScrollView, ActivityIndicator, Switch } from 'react-native';
 import { useState } from 'react';
 import * as imgPicker from 'expo-image-picker';
 import * as Speech from 'expo-speech';
@@ -8,10 +8,12 @@ export default function App() {
   const [imagesData, setImagesData] = useState([]);
   const [currentIndex, setCurrentIndex] = useState(0); 
   const [speaking, setSpeaking] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [isThaiLanguage, setIsThaiLanguage] = useState(true);
 
   function TextToSpeech(text) {
     const options = {
-        language: 'th-TH',
+        language: isThaiLanguage ? 'th-TH' : 'en-US',
         pitch: 1.0,
         rate: 1.0,
     };
@@ -25,6 +27,10 @@ export default function App() {
     }
   }
 
+  const toggleLanguage = () => {
+    setIsThaiLanguage(previousState => !previousState);
+  }
+
   const picImageGallery = async () => {
     await imgPicker.getMediaLibraryPermissionsAsync();
     let result = await imgPicker.launchImageLibraryAsync({
@@ -36,9 +42,17 @@ export default function App() {
 
     if (!result.canceled) {
       const newImage = result.assets[0];
-      const text = await changeImgToText(newImage); 
-      setImagesData([...imagesData, { uri: newImage.uri, text }]); 
-      setCurrentIndex(imagesData.length); 
+      const newIndex = imagesData.length;
+      setImagesData([...imagesData, { uri: newImage.uri, text: '' }]);
+      setCurrentIndex(newIndex);
+      setIsProcessing(true);
+      const text = await changeImgToText(newImage);
+      setImagesData(prevData => {
+        const newData = [...prevData];
+        newData[newIndex] = { ...newData[newIndex], text };
+        return newData;
+      });
+      setIsProcessing(false);
     }
   };
 
@@ -59,9 +73,17 @@ export default function App() {
 
     if (!result.canceled) {
       const newImage = result.assets[0];
-      const text = await changeImgToText(newImage); 
-      setImagesData([...imagesData, { uri: newImage.uri, text }]); 
-      setCurrentIndex(imagesData.length);
+      const newIndex = imagesData.length;
+      setImagesData([...imagesData, { uri: newImage.uri, text: '' }]);
+      setCurrentIndex(newIndex);
+      setIsProcessing(true);
+      const text = await changeImgToText(newImage);
+      setImagesData(prevData => {
+        const newData = [...prevData];
+        newData[newIndex] = { ...newData[newIndex], text };
+        return newData;
+      });
+      setIsProcessing(false);
     }
   }
 
@@ -79,7 +101,7 @@ export default function App() {
 
     return await fetch("https://api.apilayer.com/image_to_text/upload", requestOption)
       .then(response => response.json())
-      .then(result => result["all_text"])
+      .then(result => result["all_text"].trim().replace(/\s+/g, ' '))
       .catch(error => {
         console.error('Error:', error);
         return '';
@@ -98,27 +120,70 @@ export default function App() {
     }
   };
 
+  const handleClear = () => {
+    Alert.alert(
+      "Clear All Data",
+      "Are you sure you want to clear all images and text?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        { 
+          text: "OK", 
+          onPress: () => {
+            setImagesData([]);
+            setCurrentIndex(0);
+            setSpeaking(false);
+            Speech.stop();
+          }
+        }
+      ]
+    );
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.contentContainer}>
         {imagesData.length > 0 ? (
-          <Image source={{ uri: imagesData[currentIndex].uri }} style={styles.image} />
-        ) : null}
-        {imagesData.length > 0 ? (
-          <ScrollView style={styles.scrollView}>
-            <Text style={{ fontSize: 15 }}>{imagesData[currentIndex]?.text}</Text>
-          </ScrollView>
-        ) : null}
+          <>
+            <Image source={{ uri: imagesData[currentIndex].uri }} style={styles.image} />
+            <ScrollView style={styles.scrollView}>
+              {isProcessing ? (
+                <View style={styles.processingContainer}>
+                  <ActivityIndicator size="small" color="#4CAF50" />
+                  <Text style={styles.processingText}>กำลังประมวลผลข้อความ...</Text>
+                </View>
+              ) : (
+                <Text style={{ fontSize: 15 }}>{imagesData[currentIndex]?.text || 'ไม่พบข้อความในภาพ'}</Text>
+              )}
+            </ScrollView>
+          </>
+        ) : (
+          <Text style={styles.noDataText}>No images. Please select or take a photo.</Text>
+        )}
       </View>
 
       <View style={styles.buttonContainer}>
+        <View style={styles.languageToggleContainer}>
+            <Text>EN</Text>
+            <Switch
+              trackColor={{ false: "#767577", true: "#4CAF50" }}
+              thumbColor={isThaiLanguage ? "#ffffff" : "#f4f3f4"}
+              ios_backgroundColor="#3e3e3e"
+              onValueChange={toggleLanguage}
+              value={isThaiLanguage}
+            />
+            <Text>TH</Text>
+          </View>
         <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.button} onPress={handlePrevious} disabled={currentIndex === 0}>
+          <TouchableOpacity style={styles.button} onPress={handlePrevious} disabled={currentIndex === 0 || isProcessing}>
             <Text style={styles.buttonText}>Previous</Text>
           </TouchableOpacity>
 
           <TouchableOpacity style={[styles.button, { flex: 1 }]} 
-            onPress={() => { imagesData[currentIndex]?.text ? TextToSpeech(imagesData[currentIndex].text) : null }}>
+            onPress={() => { imagesData[currentIndex]?.text ? TextToSpeech(imagesData[currentIndex].text) : null }}
+            disabled={isProcessing || !imagesData[currentIndex]?.text}>
             {imagesData[currentIndex]?.text ? (
               speaking ? (
                 <Text style={styles.buttonText}>Stop</Text>
@@ -130,18 +195,22 @@ export default function App() {
             )}
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.button} onPress={handleNext} disabled={currentIndex === imagesData.length - 1}>
+          <TouchableOpacity style={styles.button} onPress={handleNext} disabled={currentIndex === imagesData.length - 1 || isProcessing}>
             <Text style={styles.buttonText}>Next</Text>
           </TouchableOpacity>
         </View>
 
         <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.button} onPress={pickImageCamera}>
+          <TouchableOpacity style={styles.button} onPress={pickImageCamera} disabled={isProcessing}>
             <Text style={styles.buttonText}>Take Photo</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.button} onPress={picImageGallery}>
+          <TouchableOpacity style={styles.button} onPress={picImageGallery} disabled={isProcessing}>
             <Text style={styles.buttonText}>Gallery</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={[styles.button, styles.clearButton]} onPress={handleClear} disabled={isProcessing || imagesData.length === 0}>
+            <Text style={styles.buttonText}>Clear All</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -162,6 +231,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  languageToggleContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 1,
+    marginTop: 5,
+  },
   buttonContainer: {
     paddingHorizontal: 10,
     paddingBottom: 20,
@@ -169,7 +245,7 @@ const styles = StyleSheet.create({
   buttonRow: {
     flexDirection: 'row', 
     justifyContent: 'center',
-    marginVertical: 10,
+    marginVertical: 7,
   },
   button: {
     backgroundColor: '#4CAF50',
@@ -181,6 +257,9 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+  },
+  clearButton: {
+    backgroundColor: '#f44336',
   },
   buttonText: {
     fontSize: 14,
@@ -201,5 +280,21 @@ const styles = StyleSheet.create({
     padding: 15,
     borderRadius: 7,
     maxHeight: 280,
+  },
+  processingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 10,
+  },
+  processingText: {
+    marginLeft: 10,
+    fontSize: 16,
+    color: '#4CAF50',
+  },
+  noDataText: {
+    fontSize: 16,
+    color: '#666',
+    textAlign: 'center',
   },
 });
