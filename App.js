@@ -11,22 +11,36 @@ export default function App() {
   const [isProcessing, setIsProcessing] = useState(false);
   const [isThaiLanguage, setIsThaiLanguage] = useState(true);
 
-  function TextToSpeech(text) {
+  function TextToSpeech(text, index = currentIndex) {
     const options = {
-        language: isThaiLanguage ? 'th-TH' : 'en-US',
-        pitch: 1.0,
-        rate: 1.0,
+      language: isThaiLanguage ? 'th-TH' : 'en-US',
+      pitch: 1.0,
+      rate: 1.0,
+      onDone: () => {
+        if (index < imagesData.length - 1) {
+          // เลื่อนไปหน้าถัดไปและอ่านต่อ
+          const nextIndex = index + 1;
+          setCurrentIndex(nextIndex);
+          TextToSpeech(imagesData[nextIndex]?.text, nextIndex); // อ่านหน้าถัดไป
+        } else {
+          // หยุดเมื่อเป็นหน้าสุดท้าย
+          setSpeaking(false);
+        }
+      },
     };
   
     if (!speaking) {
-        setSpeaking(true);
-        Speech.speak(text, options);
+      setSpeaking(true);
+      Speech.speak(text, options);
     } else {
-        setSpeaking(false);
-        Speech.stop();
+      setSpeaking(false);
+      Speech.stop();
     }
   }
-
+  
+  
+  
+  
   const toggleLanguage = () => {
     setIsThaiLanguage(previousState => !previousState);
   }
