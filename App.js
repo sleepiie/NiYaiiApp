@@ -1,8 +1,9 @@
 import { StatusBar } from 'expo-status-bar';
-import { Alert, View, Image, TouchableOpacity, StyleSheet, Text, SafeAreaView, ScrollView, ActivityIndicator, Switch } from 'react-native';
-import { useState } from 'react';
+import { Alert, View, Image, TouchableOpacity, StyleSheet, Text, SafeAreaView, ScrollView, ActivityIndicator, Switch,TextInput  } from 'react-native';
+import { useState , useEffect } from 'react';
 import * as imgPicker from 'expo-image-picker';
 import * as Speech from 'expo-speech';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function App() {
   const [imagesData, setImagesData] = useState([]);
@@ -10,6 +11,29 @@ export default function App() {
   const [speaking, setSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isThaiLanguage, setIsThaiLanguage] = useState(true);
+  const [isSelectingDocument, setIsSelectingDocument] = useState(true); 
+  const [newDocName, setNewDocName] = useState('');
+  const [isSaving, setIsSaving] = useState(false);
+  const [documents, setDocuments] = useState([]); // เพิ่มการตั้งค่าเริ่มต้นของ documents
+
+  useEffect(() => {
+    const loadDocuments = async () => {
+      try {
+        const savedDocs = await AsyncStorage.getItem('documents');
+        if (savedDocs) {
+          setDocuments(JSON.parse(savedDocs)); // ตั้งค่าข้อมูล documents
+        }
+      } catch (error) {
+        console.error('Failed to load documents:', error);
+      }
+    };
+    loadDocuments();
+  }, []);
+  
+  const handleDocumentSelect = (doc) => {
+    setImagesData(doc.imagesData);
+    setIsSelectingDocument(false);
+  };
 
   function TextToSpeech(text, index = currentIndex) {
     const options = {
@@ -18,12 +42,10 @@ export default function App() {
       rate: 1.0,
       onDone: () => {
         if (index < imagesData.length - 1) {
-          // เลื่อนไปหน้าถัดไปและอ่านต่อ
           const nextIndex = index + 1;
           setCurrentIndex(nextIndex);
-          TextToSpeech(imagesData[nextIndex]?.text, nextIndex); // อ่านหน้าถัดไป
+          TextToSpeech(imagesData[nextIndex]?.text, nextIndex);
         } else {
-          // หยุดเมื่อเป็นหน้าสุดท้าย
           setSpeaking(false);
         }
       },
@@ -38,8 +60,31 @@ export default function App() {
     }
   }
   
+  const saveDocument = async () => {
+    if (!newDocName.trim()) {
+      Alert.alert("Please enter a document name.");
+      return;
+    }
   
+    try {
+      const savedDocs = await AsyncStorage.getItem('documents');
+      const parsedDocs = savedDocs ? JSON.parse(savedDocs) : [];
+      
+      const newDoc = {
+        name: newDocName.trim(),
+        imagesData,
+      };
   
+      parsedDocs.push(newDoc);
+      await AsyncStorage.setItem('documents', JSON.stringify(parsedDocs));
+      Alert.alert("Document saved successfully!");
+      setNewDocName('');
+      setIsSaving(false);
+    } catch (error) {
+      console.error("Failed to save document:", error);
+      Alert.alert("Failed to save document.");
+    }
+  };
   
   const toggleLanguage = () => {
     setIsThaiLanguage(previousState => !previousState);
@@ -103,7 +148,7 @@ export default function App() {
 
   const changeImgToText = async (image) => {
     let header = new Headers();
-    header.append("apikey", "H52Et2kPSs53BjYGWaLmlVLMuURyiH4C");
+    header.append("apikey", "TbzsW3QztgSunes2dmiY711Llbs5XAq1");
     header.append("Content-Type", "multipart/form-data");
 
     let requestOption = {
@@ -156,7 +201,20 @@ export default function App() {
     );
   };
 
-  return (
+  return (isSelectingDocument && documents.length > 0) ? (
+    <SafeAreaView>
+      <ScrollView>
+        {documents.map((doc, index) => (
+          <TouchableOpacity key={index} style={styles.documentButton} onPress={() => handleDocumentSelect(doc)}>
+            <Text style={styles.buttonText}>{doc.name}</Text>
+          </TouchableOpacity>
+        ))}
+        <TouchableOpacity style={styles.button} onPress={() => setIsSelectingDocument(false)}>
+          <Text style={styles.buttonText}>New</Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </SafeAreaView>
+  ):(
     <SafeAreaView style={styles.container}>
       <View style={styles.contentContainer}>
         {imagesData.length > 0 ? (
@@ -191,44 +249,46 @@ export default function App() {
             <Text>TH</Text>
           </View>
         <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.button} onPress={handlePrevious} disabled={currentIndex === 0 || isProcessing}>
-            <Text style={styles.buttonText}>Previous</Text>
+          <TouchableOpacity style={styles.button} onPress={handlePrevious} disabled={currentIndex === 0}>
+            <Text style={styles.buttonText}>ก่อนหน้า</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.button, { flex: 1 }]} 
-            onPress={() => { imagesData[currentIndex]?.text ? TextToSpeech(imagesData[currentIndex].text) : null }}
-            disabled={isProcessing || !imagesData[currentIndex]?.text}>
-            {imagesData[currentIndex]?.text ? (
-              speaking ? (
-                <Text style={styles.buttonText}>Stop</Text>
-              ) : (
-                <Text style={styles.buttonText}>Listen [Page{currentIndex+1} / {imagesData.length}]</Text>
-              )
-            ) : (
-              <Text style={styles.buttonText}>Select a photo</Text>
-            )}
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.button} onPress={handleNext} disabled={currentIndex === imagesData.length - 1 || isProcessing}>
-            <Text style={styles.buttonText}>Next</Text>
+          <TouchableOpacity style={styles.button} onPress={handleNext} disabled={currentIndex === imagesData.length - 1}>
+            <Text style={styles.buttonText}>ถัดไป</Text>
           </TouchableOpacity>
         </View>
+        
+        <TouchableOpacity style={styles.button} onPress={() => TextToSpeech(imagesData[currentIndex]?.text)}>
+          <Text style={styles.buttonText}>{speaking ? 'หยุด' : 'อ่าน'}</Text>
+        </TouchableOpacity>
 
-        <View style={styles.buttonRow}>
-          <TouchableOpacity style={styles.button} onPress={pickImageCamera} disabled={isProcessing}>
-            <Text style={styles.buttonText}>Take Photo</Text>
-          </TouchableOpacity>
+        <TouchableOpacity style={styles.button} onPress={handleClear}>
+          <Text style={styles.buttonText}>Clear All</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.button} onPress={picImageGallery}>
+          <Text style={styles.buttonText}>เลือกรูปภาพ</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.button} onPress={pickImageCamera}>
+          <Text style={styles.buttonText}>ถ่ายรูป</Text>
+        </TouchableOpacity>
 
-          <TouchableOpacity style={styles.button} onPress={picImageGallery} disabled={isProcessing}>
-            <Text style={styles.buttonText}>Gallery</Text>
+        {isSaving ? (
+          <>
+            <TextInput
+              style={styles.textInput}
+              placeholder="Enter document name"
+              value={newDocName}
+              onChangeText={setNewDocName}
+            />
+            <TouchableOpacity style={styles.button} onPress={saveDocument}>
+              <Text style={styles.buttonText}>Save</Text>
+            </TouchableOpacity>
+          </>
+        ) : (
+          <TouchableOpacity style={styles.button} onPress={() => setIsSaving(true)}>
+            <Text style={styles.buttonText}>Save Document</Text>
           </TouchableOpacity>
-
-          <TouchableOpacity style={[styles.button, styles.clearButton]} onPress={handleClear} disabled={isProcessing || imagesData.length === 0}>
-            <Text style={styles.buttonText}>Clear All</Text>
-          </TouchableOpacity>
-        </View>
+        )}
       </View>
-
       <StatusBar style="auto" />
     </SafeAreaView>
   );
@@ -237,78 +297,75 @@ export default function App() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f2f2f2',
+    backgroundColor: '#fff',
     justifyContent: 'space-between',
   },
   contentContainer: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  languageToggleContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 1,
-    marginTop: 5,
+    marginTop: 10,
+    paddingHorizontal: 20,
   },
   buttonContainer: {
-    paddingHorizontal: 10,
-    paddingBottom: 20,
+    marginBottom: 20,
   },
   buttonRow: {
-    flexDirection: 'row', 
-    justifyContent: 'center',
-    marginVertical: 7,
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 10,
   },
   button: {
     backgroundColor: '#4CAF50',
-    padding: 12,
-    borderRadius: 12,
-    margin: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
-  },
-  clearButton: {
-    backgroundColor: '#f44336',
+    paddingVertical: 10,
+    paddingHorizontal: 20,
+    borderRadius: 5,
+    marginBottom: 10,
   },
   buttonText: {
-    fontSize: 14,
-    color: 'white',
-    fontWeight: '500',
-    textAlign: 'center',
+    color: '#fff',
+    fontSize: 16,
+  },
+  languageToggleContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
   },
   image: {
-    width: 300,
-    height: 250,
-    borderRadius: 15,
-    margin: 20,
+    width: 200,
+    height: 300,
+    resizeMode: 'contain',
   },
   scrollView: {
-    backgroundColor: '#e0e0e0',
-    marginLeft: 10,
-    marginRight: 10,
-    padding: 15,
-    borderRadius: 7,
-    maxHeight: 280,
-  },
-  processingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 10,
-  },
-  processingText: {
-    marginLeft: 10,
-    fontSize: 16,
-    color: '#4CAF50',
+    maxHeight: 150,
+    marginVertical: 10,
   },
   noDataText: {
+    fontSize: 18,
+    color: 'gray',
+  },
+  processingContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  processingText: {
     fontSize: 16,
-    color: '#666',
-    textAlign: 'center',
+    color: 'gray',
+    marginTop: 10,
+  },
+  documentButton: {
+    padding: 15,
+    backgroundColor: '#4CAF50',
+    borderRadius: 5,
+    marginVertical: 5,
+    alignItems: 'center',
+  },
+  textInput: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 10,
   },
 });
