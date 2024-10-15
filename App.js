@@ -1,8 +1,48 @@
 import { StatusBar } from 'expo-status-bar';
-import { Alert, View, Image, TouchableOpacity, StyleSheet, Text, SafeAreaView, ScrollView, ActivityIndicator, Switch } from 'react-native';
-import { useState } from 'react';
+import { Alert, View, Image, TouchableOpacity, StyleSheet, Text, SafeAreaView, ScrollView, ActivityIndicator, Switch, TextInput, FlatList } from 'react-native';
+import { useState, useEffect } from 'react';
 import * as imgPicker from 'expo-image-picker';
 import * as Speech from 'expo-speech';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+const DocumentSelectionScreen = ({ documents, onCreateNew, onSelectDocument, onDeleteDocument }) => {
+  return (
+    <SafeAreaView style={styles.container}>
+      <Text style={styles.title}>Select a Book</Text>
+      <FlatList
+        data={documents}
+        renderItem={({ item }) => (
+          <View style={styles.documentItemContainer}>
+            <TouchableOpacity
+              style={styles.documentItem}
+              onPress={() => onSelectDocument(item)}
+            >
+              {item.imagesData && item.imagesData.length > 0 && (
+                <Image
+                  source={{ uri: item.imagesData[0].uri }}
+                  style={styles.documentThumbnail}
+                />
+              )}
+              <Text style={styles.documentName}>{item.name}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.deleteButton}
+              onPress={() => onDeleteDocument(item.id)}
+            >
+              <Text style={styles.deleteButtonText}>Delete</Text>
+            </TouchableOpacity>
+          </View>
+        )}
+        keyExtractor={(item, index) => item.id?.toString() || index.toString()}
+        ListEmptyComponent={<Text style={styles.emptyText}>No documents found</Text>}
+      />
+      <TouchableOpacity style={styles.button} onPress={onCreateNew}>
+        <Text style={styles.buttonText}>Create New</Text>
+      </TouchableOpacity>
+    </SafeAreaView>
+  );
+};
+
 
 export default function App() {
   const [imagesData, setImagesData] = useState([]);
@@ -10,6 +50,79 @@ export default function App() {
   const [speaking, setSpeaking] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isThaiLanguage, setIsThaiLanguage] = useState(true);
+  const [showDocumentSelection, setShowDocumentSelection] = useState(true);
+  const [currentDocument, setCurrentDocument] = useState(null);
+  const [saveModalVisible, setSaveModalVisible] = useState(false);
+  const [documentName, setDocumentName] = useState('');
+  const [documents, setDocuments] = useState([]);
+
+  useEffect(() => {
+    loadDocuments();
+  }, []);
+
+  const loadDocuments = async () => {
+    try {
+      const storedDocuments = await AsyncStorage.getItem('documents');
+      if (storedDocuments !== null) {
+        setDocuments(JSON.parse(storedDocuments));
+      }
+    } catch (error) {
+      console.error('Error loading documents:', error);
+    }
+  };
+
+  const saveDocument = async () => {
+    if (documentName.trim() === '') {
+      Alert.alert('Error', 'Please enter a document name');
+      return;
+    }
+
+    try {
+      const newDocument = {
+        id: Date.now().toString(), // Ensure this is a string
+        name: documentName,
+        imagesData: imagesData,
+      };
+
+      const updatedDocuments = [...documents, newDocument];
+      await AsyncStorage.setItem('documents', JSON.stringify(updatedDocuments));
+      setDocuments(updatedDocuments);
+      setCurrentDocument(newDocument);
+      setSaveModalVisible(false);
+      setDocumentName('');
+      Alert.alert('Success', 'Document saved successfully');
+    } catch (error) {
+      console.error('Error saving document:', error);
+      Alert.alert('Error', 'Failed to save document');
+    }
+  };
+
+  const handleDeleteDocument = async (documentId) => {
+    Alert.alert(
+      "Delete Document",
+      "Are you sure you want to delete this document?",
+      [
+        {
+          text: "Cancel",
+          style: "cancel"
+        },
+        { 
+          text: "Delete", 
+          onPress: async () => {
+            try {
+              const updatedDocuments = documents.filter(doc => doc.id !== documentId);
+              await AsyncStorage.setItem('documents', JSON.stringify(updatedDocuments));
+              setDocuments(updatedDocuments);
+              Alert.alert("Success", "Document deleted successfully");
+            } catch (error) {
+              console.error('Error deleting document:', error);
+              Alert.alert("Error", "Failed to delete document");
+            }
+          }
+        }
+      ]
+    );
+  };
 
   function TextToSpeech(text, index = currentIndex) {
     const options = {
@@ -51,21 +164,30 @@ export default function App() {
       mediaTypes: imgPicker.MediaTypeOptions.All,
       allowsEditing: false,
       base64: true,
-      allowsMultipleSelection: true, 
+      allowsMultipleSelection: true,
+      selectionLimit: 10, // You can adjust this number as needed
     });
-
-    if (!result.canceled) {
-      const newImage = result.assets[0];
-      const newIndex = imagesData.length;
-      setImagesData([...imagesData, { uri: newImage.uri, text: '' }]);
-      setCurrentIndex(newIndex);
+  
+    if (!result.canceled && result.assets.length > 0) {
+      // Immediately add new images with empty text and set processing to true
+      const newImages = result.assets.map(asset => ({ uri: asset.uri, text: '' }));
+      setImagesData(prevData => [...prevData, ...newImages]);
+      setCurrentIndex(imagesData.length); // Set to the first new image
       setIsProcessing(true);
-      const text = await changeImgToText(newImage);
-      setImagesData(prevData => {
-        const newData = [...prevData];
-        newData[newIndex] = { ...newData[newIndex], text };
-        return newData;
-      });
+  
+      // Process images one by one
+      for (let i = 0; i < result.assets.length; i++) {
+        const asset = result.assets[i];
+        const text = await changeImgToText(asset);
+        
+        // Update the specific image with the processed text
+        setImagesData(prevData => {
+          const newData = [...prevData];
+          newData[imagesData.length + i] = { ...newData[imagesData.length + i], text };
+          return newData;
+        });
+      }
+  
       setIsProcessing(false);
     }
   };
@@ -103,7 +225,7 @@ export default function App() {
 
   const changeImgToText = async (image) => {
     let header = new Headers();
-    header.append("apikey", "H52Et2kPSs53BjYGWaLmlVLMuURyiH4C");
+    header.append("apikey", "SR9d3wHUWcIQRXPvCRBx0V8wQXlrfGDF");
     header.append("Content-Type", "multipart/form-data");
 
     let requestOption = {
@@ -156,8 +278,51 @@ export default function App() {
     );
   };
 
+  const handleSave = () => {
+    setSaveModalVisible(true);
+  };
+
+  const handleCreateNewDocument = () => {
+    setImagesData([]);
+    setCurrentIndex(0);
+    setCurrentDocument(null);
+    setShowDocumentSelection(false);
+  };
+
+  const handleSelectDocument = (document) => {
+    setImagesData(document.imagesData);
+    setCurrentIndex(0);
+    setCurrentDocument(document);
+    setShowDocumentSelection(false);
+  };
+
+  const handleBackToDocuments = () => {
+    setShowDocumentSelection(true);
+    setSpeaking(false);
+    Speech.stop();
+  };
+
+
+  if (showDocumentSelection) {
+    return (
+      <DocumentSelectionScreen
+        documents={documents}
+        onCreateNew={handleCreateNewDocument}
+        onSelectDocument={handleSelectDocument}
+        onDeleteDocument={handleDeleteDocument}
+      />
+    );
+  }
   return (
     <SafeAreaView style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBackToDocuments}>
+          <Text style={styles.backButtonText}>← Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>
+          {currentDocument ? currentDocument.name : 'New Book'}
+        </Text>
+      </View>
       <View style={styles.contentContainer}>
         {imagesData.length > 0 ? (
           <>
@@ -227,11 +392,30 @@ export default function App() {
             <Text style={styles.buttonText}>Clear All</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.button} onPress={picImageGallery} disabled={isProcessing}>
+          <TouchableOpacity style={[styles.button, styles.savebutton]} onPress={handleSave} disabled={isProcessing}>
             <Text style={styles.buttonText}>Save</Text>
           </TouchableOpacity>
         </View>
       </View>
+
+      {saveModalVisible && (
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <TextInput
+              style={styles.input}
+              onChangeText={setDocumentName}
+              value={documentName}
+              placeholder="Enter document name"
+            />
+            <TouchableOpacity style={styles.button} onPress={saveDocument}>
+              <Text style={styles.buttonText}>Save</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.button} onPress={() => setSaveModalVisible(false)}>
+              <Text style={styles.buttonText}>Cancel</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
 
       <StatusBar style="auto" />
     </SafeAreaView>
@@ -285,9 +469,13 @@ const styles = StyleSheet.create({
     fontWeight: '500',
     textAlign: 'center',
   },
+  savebutton: {
+    backgroundColor: '#6096cc',
+  },
   image: {
     width: 300,
     height: 250,
+    resizeMode: 'contain',
     borderRadius: 15,
     margin: 20,
   },
@@ -314,5 +502,118 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#666',
     textAlign: 'center',
+  },
+  title: {
+    paddingTop: 20,
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  documentItem: {
+    backgroundColor: '#e0e0e0',
+    padding: 15,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderRadius: 5,
+  },
+  documentName: {
+    fontSize: 18,
+  },
+  emptyText: {
+    textAlign: 'center',
+    marginTop: 50,
+    fontSize: 16,
+    color: '#666',
+  },
+  modalContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  modalContent: {
+    backgroundColor: 'white',
+    padding: 20,
+    borderRadius: 10,
+    width: '80%',
+  },
+  input: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    borderRadius: 5,
+    padding: 10,
+    marginBottom: 10,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    backgroundColor: '#f8f8f8',
+    borderBottomWidth: 1,
+    borderBottomColor: '#e0e0e0',
+  },
+  backButton: {
+    padding: 10,
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: '#4CAF50',
+  },
+  headerTitle: {
+    flex: 1,
+    fontSize: 18,
+    fontWeight: 'bold',
+    textAlign: 'center',
+    marginRight: 50,  // To offset the back button and center the title
+  },
+  documentItemContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#e0e0e0',
+    padding: 15,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderRadius: 5,
+  },
+  documentItem: {
+    flex: 1,
+  },
+  deleteButton: {
+    backgroundColor: '#f44336',
+    padding: 8,
+    borderRadius: 5,
+    marginLeft: 10,
+  },
+  deleteButtonText: {
+    color: 'white',
+    fontSize: 14,
+  },
+
+  documentThumbnail: {
+    width: 50,
+    height: 50,
+    marginRight: 10,
+    borderRadius: 5,
+  },
+  documentItemContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#e0e0e0',
+    padding: 15,
+    marginVertical: 8,
+    marginHorizontal: 16,
+    borderRadius: 5,
+  },
+  documentItem: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
 });
