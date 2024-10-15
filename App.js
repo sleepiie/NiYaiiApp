@@ -156,6 +156,9 @@ export default function App() {
     );
   };
 
+  const handleSave = () => {
+  };
+
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.contentContainer}>
@@ -227,7 +230,7 @@ export default function App() {
             <Text style={styles.buttonText}>Clear All</Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.button} onPress={picImageGallery} disabled={isProcessing}>
+          <TouchableOpacity style={styles.button} onPress={handleSave} disabled={isProcessing}>
             <Text style={styles.buttonText}>Save</Text>
           </TouchableOpacity>
         </View>
