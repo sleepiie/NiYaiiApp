@@ -43,7 +43,7 @@ export default function App() {
   
   const toggleLanguage = () => {
     setIsThaiLanguage(previousState => !previousState);
-  }
+  };
 
   const picImageGallery = async () => {
     await imgPicker.getMediaLibraryPermissionsAsync();
@@ -225,6 +225,10 @@ export default function App() {
 
           <TouchableOpacity style={[styles.button, styles.clearButton]} onPress={handleClear} disabled={isProcessing || imagesData.length === 0}>
             <Text style={styles.buttonText}>Clear All</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.button} onPress={picImageGallery} disabled={isProcessing}>
+            <Text style={styles.buttonText}>Save</Text>
           </TouchableOpacity>
         </View>
       </View>
